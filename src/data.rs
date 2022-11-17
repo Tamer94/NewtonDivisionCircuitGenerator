@@ -91,22 +91,19 @@ pub mod data {
             }
         }
 
-              pub fn get_next_level(&self) -> usize {
-            match *self {
-                Not(i) => self.lines[i].level + 1,
-                And(i1, i2) => self.lines[i1].level.max(self.lines[i2].level) + 1,
-                Or(li1, i2) => self.lines[i1].level.max(self.lines[i2].level) + 1,
-                Xor(i1, i2) => self.lines[i1].level.max(self.lines[i2].level) + 1,
-            }
+              pub fn get_next_level(&self, i1: usize, i2: usize) -> usize {
+                self.lines[i1].level.max(self.lines[i2].level) + 1
+
         }
 
-        pub fn out(&self, idx: usize) -> Line {
-            self.lines[idx].out
+        pub fn out(&self, idx: usize) -> usize {
+            self.lines[idx].n
         }
 
-       pub fn add_line(&mut self) -> usize {
+       pub fn add_line(&mut self, level: usize) -> usize {
          let line_count = self.stats.line_count;
             self.stats.line_count += 1;
+            self.lines.push(Line { level, n: line_count });
             
             line_count
         }
@@ -137,7 +134,7 @@ pub mod data {
             }
 
             for wire in &self.wires {
-                s.push_str(&format!("wire _{}_;\n", wire.out.n));
+                s.push_str(&format!("wire _{}_;\n", self.lines[wire.out].n));
             }
             s
         }
@@ -163,12 +160,12 @@ pub mod data {
 
             let mut index = 0;
             for (i, wire) in self.wires.iter().enumerate() {
-                let output_to_test = self.outputs[index].1;
+                let output_to_test = self.lines[self.outputs[0].lines[index]].n;
                 if i == output_to_test {
                     s.push_str(&format!("assign S[{}] = ", index));
                     index += 1;
                 } else {
-                    s.push_str(&format!("assign _{}_ = ", wire.out.n));
+                    s.push_str(&format!("assign _{}_ = ", self.lines[wire.out].n));
                 }
                 match wire.gate {
                     And(i1, i2) => {
