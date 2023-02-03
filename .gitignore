@@ -1,4 +1,4 @@
 *.v
 *.txt
-/target/
-/GeneratedDividers/
+./target/
+./GeneratedDividers/
