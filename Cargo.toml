@@ -1,9 +1,15 @@
 [package]
-name = "my-project"
+name = "divider_gen"
 version = "0.1.0"
-authors = ["runner"]
+authors = ["Tamer Bouz El-Jedi"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rand = "0.8.5"
+num = "0.4"
+clap = { version = "4.0.32", features = ["derive"] }
+
+[profile.test]
+#opt-level = 3

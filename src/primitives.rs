@@ -1,107 +1,209 @@
-use crate::data::data::{Circuit, Gate, Line, Out, Output, Stats, Wire, IO};
+use std::collections::VecDeque;
 
-pub struct Sum2 {
-    pub c: Line,
-    pub s: Line,
+use crate::data::{
+    Bit, Bit::One, Bit::Var, Bit::Zero, Circuit, Gate, Line,
+    Wire
+};
+
+pub trait Get<T> {
+    fn get_or(&self, idx: usize, default: T) -> T;
 }
 
-pub struct PropagateGenerate {
-    pub p: Line,
-    pub g: Line,
+impl<T> Get<T> for Vec<T>
+where
+    T: Copy,
+{
+    fn get_or(&self, idx: usize, default: T) -> T {
+        *self.get(idx).unwrap_or(&default)
+    }
 }
 
-pub struct Sum3 {
-    pub c1: Line,
-    pub c0: Line,
-    pub s: Line,
-}
 impl Circuit {
     #[inline(always)]
-    pub fn xor(&mut self, i1: Line, i2: Line) -> Line {
-        let mut gate = Gate::Xor(i1, i2);
-        let line = Line {
-                level: gate.get_next_level(),
-                n: self.stats.add_line(),
-            };
-        self.wires.push(Wire::new(line, gate));
-        line
+    pub fn xor(&mut self, i1: Bit, i2: Bit) -> Bit {
+        let bit;
+        match (i1, i2) {
+            (Var(j1), Var(j2)) => {
+                if j1 != j2 {
+                    let gate = Gate::Xor(j1, j2);
+                    self.stats.gatter_count += 1;
+                    let line = Line {
+                        level: gate.get_next_level(),
+                        n: self.stats.add_line(),
+                    };
+                    self.wires.push(Wire::new(line, gate));
+                    bit = Var(line);
+                }
+                else {
+                    bit = Zero;
+                }
+            }
+            (Var(_), Zero) => {
+                bit = i1;
+            }
+            (Zero, Var(_)) => {
+                bit = i2;
+            }
+            (Var(j1), One) => {
+                let gate = Gate::Not(j1);
+                self.stats.gatter_count += 1;
+                let line = Line {
+                    level: gate.get_next_level(),
+                    n: self.stats.add_line(),
+                };
+                self.wires.push(Wire::new(line, gate));
+                bit = Var(line);
+            }
+            (One, Var(j2)) => {
+                let gate = Gate::Not(j2);
+                self.stats.gatter_count += 1;
+                let line = Line {
+                    level: gate.get_next_level(),
+                    n: self.stats.add_line(),
+                };
+                self.wires.push(Wire::new(line, gate));
+                bit = Var(line);
+            }
+            (Zero, Zero) => {
+                bit = Zero;
+            }
+            (Zero, One) => {
+                bit = One;
+            }
+            (One, Zero) => {
+                bit = One;
+            }
+            (One, One) => {
+                bit = Zero;
+            }
+        }
+        bit
     }
 
     #[inline(always)]
-    pub fn and(&mut self, i1: Line, i2: Line) -> Line {
-        let mut gate = Gate::And(i1, i2);
-        let line = Line {
-                level: gate.get_next_level(),
-                n: self.stats.add_line(),
-            };
-        self.wires.push(Wire::new(line, gate));
-        line
+    pub fn and(&mut self, i1: Bit, i2: Bit) -> Bit {
+        let bit;
+        match (i1, i2) {
+            (Var(j1), Var(j2)) => {
+                if j1 != j2 {
+                    let gate = Gate::And(j1, j2);
+                    self.stats.gatter_count += 1;
+                    let line = Line {
+                        level: gate.get_next_level(),
+                        n: self.stats.add_line(),
+                    };
+                    self.wires.push(Wire::new(line, gate));
+                    bit = Var(line);
+                } else {
+                    bit = i1;
+                }
+            }
+            (Var(_), Zero) => {
+                bit = Zero;
+            }
+            (Zero, Var(_)) => {
+                bit = Zero;
+            }
+            (Var(_), One) => {
+                bit = i1;
+            }
+            (One, Var(_)) => {
+                bit = i2;
+            }
+            (Zero, ..) => {
+                bit = Zero;
+            }
+            (One, Zero) => {
+                bit = Zero;
+            }
+            (One, One) => {
+                bit = One;
+            }
+        }
+        bit
     }
 
     #[inline(always)]
-    pub fn or(&mut self, i1: Line, i2: Line) -> Line {
-        let mut gate = Gate::Or(i1, i2);
-        let line = Line {
-                level: gate.get_next_level(),
-                n: self.stats.add_line(),
-            };
-        self.wires.push(Wire::new(line, gate));
-        line
+    pub fn or(&mut self, i1: Bit, i2: Bit) -> Bit {
+        let bit;
+        match (i1, i2) {
+            (Var(j1), Var(j2)) => {
+                if j1 != j2 {
+                    let gate = Gate::Or(j1, j2);
+                    self.stats.gatter_count += 1;
+                    let line = Line {
+                        level: gate.get_next_level(),
+                        n: self.stats.add_line(),
+                    };
+                    self.wires.push(Wire::new(line, gate));
+                    bit = Var(line);
+                } else {
+                    bit = i1;
+                }
+            }
+            (Var(_), Zero) => {
+                bit = i1;
+            }
+            (Zero, Var(_)) => {
+                bit = i2;
+            }
+            (Var(_), One) => {
+                bit = One;
+            }
+            (One, Var(_)) => {
+                bit = One;
+            }
+            (Zero, Zero) => {
+                bit = Zero;
+            }
+            (Zero, One) => {
+                bit = One;
+            }
+            (One, ..) => {
+                bit = One;
+            }
+        }
+        bit
     }
 
     #[inline(always)]
-    pub fn not(&mut self, i1: Line) -> Line {
-        let mut gate = Gate::Not(i1);
-        let line = Line {
-                level: gate.get_next_level(),
-                n: self.stats.add_line(),
-            };
-        self.wires.push(Wire::new(line, gate));
-        line
+    pub fn not(&mut self, i1: Bit) -> Bit {
+        let bit;
+        match i1 {
+            Var(j1) => {
+                let gate = Gate::Not(j1);
+                self.stats.gatter_count += 1;
+                let line = Line {
+                    level: gate.get_next_level(),
+                    n: self.stats.add_line(),
+                };
+                self.wires.push(Wire::new(line, gate));
+                bit = Var(line);
+            }
+            One => {
+                bit = Zero;
+            }
+            Zero => {
+                bit = One;
+            }
+        }
+        bit
     }
 
-    #[inline(always)]
-    pub fn half_adder(&mut self, i1: Line, i2: Line) -> Sum2 {
-        let s = self.xor(i1, i2);
-        let c = self.and(i1, i2);
-        Sum2 { c: c, s: s }
+    pub fn or_of_all(&mut self, bits: Vec<Bit>) -> Bit {
+        let mut bits = VecDeque::from(bits);
+        while bits.len() > 1 {
+            let bit1 = bits.pop_front().unwrap_or(Zero);
+            let bit2 = bits.pop_front().unwrap_or(Zero);
+            let r = self.or(bit1, bit2);
+            bits.push_back(r);
+        }
+        bits.pop_front().unwrap_or(Zero)
     }
 
-    #[inline(always)]
-    pub fn full_adder(&mut self, i1: Line, i2: Line, c: Line) -> Sum2 {
-        let sum1 = self.half_adder(i1, i2);
-        let sum2 = self.half_adder(sum1.s, c);
-        let c = self.or(sum1.c, sum2.c);
-        Sum2 { c: c, s: sum2.s }
-    }
-
-    #[inline(always)]
-    pub fn a_dot_operator(&mut self, p: Line, g: Line, p_prev: Line, g_prev: Line) -> PropagateGenerate {
-        let p = self.and(p, p_prev);
-        let temp = self.and(p, g_prev);
-        let g = self.or(g, temp);
-        PropagateGenerate { p: p, g: g }
-    }
-
-    #[inline(always)]
-    pub fn a_final(&mut self, p: Line, g: Line, c_in: Line) -> Sum2 {
-      let s = self.xor(p, c_in);
-      Sum2 { s, c: g }
-    }
-
-    #[inline(always)]
-    pub fn half_sub(&mut self, minuend: Line, subtrahend: Line) -> Sum2 {
-        let s = self.xor(minuend, subtrahend);
-        let temp = self.not(minuend);
-        let c = self.and(temp, subtrahend);
-        Sum2 { c: c, s: s }
-    }
-
-    #[inline(always)]
-    pub fn full_sub(&mut self, minuend: Line, subtrahend: Line, c_in: Line) -> Sum2 {
-        let sum1 = self.half_sub(minuend, subtrahend);
-        let sum2 = self.half_sub(sum1.s, c_in);
-        let c_out = self.or(sum2.c, sum1.c); 
-        Sum2 { c: c_out, s: sum2.s }
+    pub fn not_all(&mut self, bits: &mut Vec<Bit>) {
+        for bit in bits {
+            *bit = self.not(*bit);
+        }
     }
 }

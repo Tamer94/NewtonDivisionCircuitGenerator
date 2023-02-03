@@ -1,184 +1,36 @@
+mod adders;
+mod circuit_tests;
 mod data;
+mod dividers;
+mod helpers;
+mod multipliers;
 mod primitives;
-use data::data::{Circuit, Gate, Line, Out, Stats, Wire, IO};
-use std::fs::File;
-use std::io::prelude::*;
+mod cli;
+use data::{Circuit};
+use std::time::Instant;
 
-fn main() -> std::io::Result<()> {/*
-    let mut file = File::create("Carry_Ripple.v")?;
-  file.write_all(        create_carry_ripple(512, &mut Stats::new())
-            .0
-            .verilog_str("carry_ripple_4bit").as_bytes())?;
+fn main() -> std::io::Result<()> {
+    use std::env;
+    env::set_var("RUST_BACKTRACE", "1");
 
-    println!(
-        "{}",
-        create_carry_ripple(4, &mut Stats::new())
-            .0
-            .verilog_str("carry_ripple_4bit")
-    );
-    println!("{:?}", create_carry_ripple(4, &mut Stats::new()));
-    */
-    let mut circuit = Circuit::new();
-    let a0 = Line { level: 0, n: circuit.stats.add_line() };
-    let b0 = Line { level: 0, n: circuit.stats.add_line() };
-    let c_in = Line { level: 0, n: circuit.stats.add_line() };
-    let fs = circuit.full_sub(a0, b0, c_in);
-    println!("{:?}", circuit.wires);
-  Ok(())
-}
+    let (divider_builder, remove_dead_ends, additional_args) = cli::parse();
+    let (output_filename, module_name) = cli::get_file_and_module_name(additional_args);
 
-/*
-fn create_carry_ripple(bits: u32, stats: &mut Stats) -> (Circuit, Stats) {
-    let mut circuit = Circuit::new();
-    if bits == 0 {
-        return (circuit, *stats);
+    let mut time = Instant::now();
+    let mut circuit = Circuit::get_divider_circuit(divider_builder);
+    println!("Generating circuit took {:#?} µs", time.elapsed().as_micros());
+
+    if remove_dead_ends {
+        time = Instant::now();
+        circuit.remove_dead_ends();
+        println!("Removing dead ends took {:#?} µs", time.elapsed().as_micros());
     }
 
-    let mut x_v = {
-        let mut lines = Vec::with_capacity(bits as usize);
-        for x in 0..(bits as usize) {
-            lines.push(Line { level: 0, n: x });
-        }
-        stats.line_count += bits as usize;
-        lines
-    };
-    let mut y_v = {
-        let mut lines = Vec::with_capacity(bits as usize);
-        for x in 0..(bits as usize) {
-            lines.push(Line {
-                level: 0,
-                n: x + stats.line_count,
-            });
-        }
-        stats.line_count += bits as usize;
-        lines
-    };
-    let mut c_v = {
-        let mut lines = Vec::with_capacity(1);
 
-        lines.push(Line {
-            level: 0,
-            n: stats.line_count,
-        });
-        lines
-    };
-    let x = IO::new("X", x_v);
-    let y = IO::new("Y", y_v);
-    let c_in = IO::new("C_in", c_v);
-    stats.line_count += 1;
+    time = Instant::now();
+    circuit.write_to_file(&output_filename, &module_name)?;
+    println!("Writing circuit to file took {:#?} µs saved as <{}>", time.elapsed().as_micros(), output_filename);
+    println!("Gatter count: {}, Max depth: {}", circuit.stats.gatter_count, circuit.stats.level_count);
 
-    let mut carry_line = c_in.lines[0];
-    let mut first_xor_out;
-    let mut first_and_out;
-    let mut second_and_out;
-    let mut sum: Vec<(Out, usize)> = Vec::new();
-
-    for i in 0..(bits as usize - 1) {
-        let mut gate = Gate::Xor(x.lines[i], y.lines[i]);
-        circuit.wires.push(Wire::new(
-            Line {
-                level: gate.get_next_level(),
-                n: stats.add_line(),
-            },
-            gate,
-        ));
-        first_xor_out = circuit.wires[circuit.wires.len() - 1].out;
-
-        gate = Gate::And(x.lines[i], y.lines[i]);
-        circuit.wires.push(Wire::new(
-            Line {
-                level: gate.get_next_level(),
-                n: stats.add_line(),
-            },
-            gate,
-        ));
-        first_and_out = circuit.wires[circuit.wires.len() - 1].out;
-
-        gate = Gate::Xor(first_xor_out, carry_line);
-        circuit.wires.push(Wire::new(
-            Line {
-                level: gate.get_next_level(),
-                n: stats.add_line(),
-            },
-            gate,
-        ));
-        sum.push((Out::Wire, circuit.wires.len() - 1));
-
-        gate = Gate::And(first_xor_out, carry_line);
-        circuit.wires.push(Wire::new(
-            Line {
-                level: gate.get_next_level(),
-                n: stats.add_line(),
-            },
-            gate,
-        ));
-        second_and_out = circuit.wires[circuit.wires.len() - 1].out;
-
-        gate = Gate::Or(first_and_out, second_and_out);
-        circuit.wires.push(Wire::new(
-            Line {
-                level: gate.get_next_level(),
-                n: stats.add_line(),
-            },
-            gate,
-        ));
-        carry_line = circuit.wires[circuit.wires.len() - 1].out;
-    }
-
-    let mut gate = Gate::Xor(x.lines[x.lines.len() - 1], y.lines[x.lines.len() - 1]);
-    circuit.wires.push(Wire::new(
-        Line {
-            level: gate.get_next_level(),
-            n: stats.add_line(),
-        },
-        gate,
-    ));
-    first_xor_out = circuit.wires[circuit.wires.len() - 1].out;
-
-    gate = Gate::And(x.lines[x.lines.len() - 1], y.lines[x.lines.len() - 1]);
-    circuit.wires.push(Wire::new(
-        Line {
-            level: gate.get_next_level(),
-            n: stats.add_line(),
-        },
-        gate,
-    ));
-    first_and_out = circuit.wires[circuit.wires.len() - 1].out;
-
-    gate = Gate::Xor(first_xor_out, carry_line);
-    circuit.wires.push(Wire::new(
-        Line {
-            level: gate.get_next_level(),
-            n: stats.add_line(),
-        },
-        gate,
-    ));
-    sum.push((Out::Wire, circuit.wires.len() - 1));
-
-    gate = Gate::And(first_xor_out, carry_line);
-    circuit.wires.push(Wire::new(
-        Line {
-            level: gate.get_next_level(),
-            n: stats.add_line(),
-        },
-        gate,
-    ));
-    second_and_out = circuit.wires[circuit.wires.len() - 1].out;
-
-    gate = Gate::Or(first_and_out, second_and_out);
-    circuit.wires.push(Wire::new(
-        Line {
-            level: gate.get_next_level(),
-            n: stats.add_line(),
-        },
-        gate,
-    ));
-    sum.push((Out::Wire, circuit.wires.len() - 1));
-
-    circuit.inputs.push(x);
-    circuit.inputs.push(y);
-    circuit.inputs.push(c_in);
-    circuit.outputs = sum;
-    (circuit, *stats)
+    Ok(())
 }
-*/
