@@ -14,11 +14,11 @@ pub mod data {
     #[derive(Debug, PartialEq, Eq)]
     pub struct IO {
         pub name: String,
-        pub lines: Vec<usize>,
+        pub lines: Vec<Line>,
     }
 
     impl IO {
-        pub fn new(name: &str, lines: Vec<usize>) -> Self {
+        pub fn new(name: &str, lines: Vec<Line>) -> Self {
             IO {
                 name: String::from(name),
                 lines,
@@ -43,24 +43,32 @@ pub mod data {
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub enum Gate {
-        Not(usize),
-        And(usize, usize),
-        Or(usize, usize),
-        Xor(usize, usize),
+        Not(Line),
+        And(Line, Line),
+        Or(Line, Line),
+        Xor(Line, Line),
     }
 
     use Gate::{And, Not, Or, Xor};
     impl Gate {
+        pub fn get_next_level(&self) -> usize {
+            match *self {
+                Not(line) => line.level + 1,
+                And(l1, l2) => l1.level.max(l2.level) + 1,
+                Or(l1, l2) => l1.level.max(l2.level) + 1,
+                Xor(l1, l2) => l1.level.max(l2.level) + 1,
+            }
+        }
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct Wire {
         pub gate: Gate,
-        pub out: usize,
+        pub out: Line,
     }
 
     impl Wire {
-        pub fn new(out: usize, gate: Gate) -> Self {
+        pub fn new(out: Line, gate: Gate) -> Self {
             Wire { gate, out }
         }
     }
@@ -75,7 +83,6 @@ pub mod data {
     pub struct Circuit {
         pub inputs: Vec<IO>,
         pub outputs: Vec<Output>,
-        pub lines: Vec<Line>,
         pub wires: Vec<Wire>,
         pub stats: Stats,
     }
@@ -85,27 +92,13 @@ pub mod data {
             Circuit {
                 inputs: { Vec::new() },
                 outputs: { Vec::new() },
-                lines: { Vec::new() },
                 wires: { Vec::new() },
-                stats: { Stats::new() },
+                stats: { Stats::new()}
             }
         }
 
-              pub fn get_next_level(&self, i1: usize, i2: usize) -> usize {
-                self.lines[i1].level.max(self.lines[i2].level) + 1
-
-        }
-
-        pub fn out(&self, idx: usize) -> usize {
-            self.lines[idx].n
-        }
-
-       pub fn add_line(&mut self, level: usize) -> usize {
-         let line_count = self.stats.line_count;
-            self.stats.line_count += 1;
-            self.lines.push(Line { level, n: line_count });
-            
-            line_count
+        pub fn out(&self, idx: usize) -> Line {
+            self.wires[idx].out
         }
 
         pub fn all_labels(&self) -> String {
@@ -134,11 +127,12 @@ pub mod data {
             }
 
             for wire in &self.wires {
-                s.push_str(&format!("wire _{}_;\n", self.lines[wire.out].n));
+                s.push_str(&format!("wire _{}_;\n", wire.out.n));
             }
             s
         }
 
+        /*
         pub fn verilog_str(&self, module_name: &str) -> String {
             use std::collections::HashMap;
             let mut s = String::new();
@@ -160,12 +154,12 @@ pub mod data {
 
             let mut index = 0;
             for (i, wire) in self.wires.iter().enumerate() {
-                let output_to_test = self.lines[self.outputs[0].lines[index]].n;
+                let output_to_test = self.outputs[index].1;
                 if i == output_to_test {
                     s.push_str(&format!("assign S[{}] = ", index));
                     index += 1;
                 } else {
-                    s.push_str(&format!("assign _{}_ = ", self.lines[wire.out].n));
+                    s.push_str(&format!("assign _{}_ = ", wire.out.n));
                 }
                 match wire.gate {
                     And(i1, i2) => {
@@ -220,7 +214,9 @@ pub mod data {
             s.push_str("endmodule");
             s
         }
+    */
     }
+    
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct Stats {
@@ -236,6 +232,11 @@ pub mod data {
                 gatter_count: 0,
                 level_count: 0,
             }
+        }
+
+        pub fn add_line(&mut self) -> usize {
+            self.line_count += 1;
+            self.line_count - 1
         }
     }
 }

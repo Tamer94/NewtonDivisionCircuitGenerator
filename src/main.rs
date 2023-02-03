@@ -1,14 +1,15 @@
 mod data;
+mod primitives;
 use data::data::{Circuit, Gate, Line, Out, Stats, Wire, IO};
 use std::fs::File;
 use std::io::prelude::*;
 
-fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {/*
     let mut file = File::create("Carry_Ripple.v")?;
   file.write_all(        create_carry_ripple(512, &mut Stats::new())
             .0
             .verilog_str("carry_ripple_4bit").as_bytes())?;
-  /*
+
     println!(
         "{}",
         create_carry_ripple(4, &mut Stats::new())
@@ -17,9 +18,16 @@ fn main() -> std::io::Result<()> {
     );
     println!("{:?}", create_carry_ripple(4, &mut Stats::new()));
     */
+    let mut circuit = Circuit::new();
+    let a0 = Line { level: 0, n: circuit.stats.add_line() };
+    let b0 = Line { level: 0, n: circuit.stats.add_line() };
+    let c_in = Line { level: 0, n: circuit.stats.add_line() };
+    let fs = circuit.full_sub(a0, b0, c_in);
+    println!("{:?}", circuit.wires);
   Ok(())
 }
 
+/*
 fn create_carry_ripple(bits: u32, stats: &mut Stats) -> (Circuit, Stats) {
     let mut circuit = Circuit::new();
     if bits == 0 {
@@ -173,3 +181,4 @@ fn create_carry_ripple(bits: u32, stats: &mut Stats) -> (Circuit, Stats) {
     circuit.outputs = sum;
     (circuit, *stats)
 }
+*/
