@@ -75,14 +75,14 @@ pub enum Mul {
 impl Mul {
     pub fn mul_u(&self, circuit: &mut Circuit, f1: Vec<Bit>, f2: Vec<Bit>, s: Option<Vec<Bit>>, adder: Adder) -> Vec<Bit> {
         match *self {
-            Self::DadaTree => Circuit::mul_unsigned_clean(circuit, f1, f2, s, adder),
+            Self::DadaTree => Circuit::umul_dadda(circuit, f1, f2, s, adder),
             Self::Array => Circuit::array_mul(circuit, f1, f2, s, adder),
         }
     }
 
     pub fn square_u(&self, circuit: &mut Circuit, f1: Vec<Bit>, ignore: usize, adder: Adder) -> Vec<Bit> {
         match *self {
-            Self::DadaTree => Circuit::square_u(circuit, f1, ignore, adder),
+            Self::DadaTree => Circuit::usquare_dadda(circuit, f1, ignore, adder),
             Self::Array => Circuit::array_mul(circuit, f1.clone(), f1, None, adder),
         }
     }
@@ -743,5 +743,21 @@ impl Stats {
     pub fn add_line(&mut self) -> usize {
         self.line_count += 1;
         self.line_count - 1
+    }
+}
+
+pub struct LevelizedCircuit {
+    pub circuit: Circuit,
+    pub substitution_levels: HashMap<usize, usize>,
+    pub current_level: usize,
+}
+
+impl LevelizedCircuit {
+    pub fn new() -> Self {
+        LevelizedCircuit {
+            circuit: Circuit::new(),
+            substitution_levels: HashMap::new(),
+            current_level: 0,
+        }
     }
 }

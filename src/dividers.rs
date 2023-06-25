@@ -1,4 +1,4 @@
-use crate::data::{Adder, Mul};
+use crate::data::{Adder, Mul, LevelizedCircuit};
 use crate::data::{Bit, Bit::One, Bit::Zero, Circuit, Shift};
 use crate::primitives::*;
 use clap::ValueEnum;
@@ -13,6 +13,7 @@ pub struct IntDivResult {
 pub enum Method {
     Newton,
     Goldschmidt,
+    Restoring,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, ValueEnum)]
@@ -31,7 +32,6 @@ pub enum Precision {
 pub enum Estimate {
     Table10bit,
     Flip5bit,
-    Linear,
     None,
 }
 
@@ -80,7 +80,67 @@ impl DivInfo {
     }
 }
 
+fn shift_right<T: Clone>(array: &mut [T], shift: usize) {
+    let len = array.len();
+    if shift > 0 && len > 0 {
+        let shift = shift % len;
+        let mut i = len - 1;
+        while i >= shift {
+            array[i] = array[i - shift].clone();
+            i -= 1;
+        }
+    }
+}
+
 impl Circuit {
+    pub fn restoring_division(&mut self,
+    dividend: Vec<Bit>,
+    divisor: Vec<Bit>,
+    info: DivInfo
+) -> IntDivResult {
+    let ok = self.or_of_all(divisor.clone());
+    if dividend.len() != divisor.len() {
+        panic!("Divisor and Dividend do not have the same number of bits");
+    }
+    if divisor.len() == 0 || dividend.len() == 0 {
+        panic!("One of the input bit vectors was empty!");
+    }
+
+    let n = divisor.len();
+    let mut q = Bit::zeroes(n);
+    let mut r = Bit::zeroes(n);
+    for i in 0..n {
+        r[0] = dividend.get_or(n - 1 - i, Zero);
+        let mut r_copy = r.clone();
+        r_copy.reverse();
+        // println!("{:?}", r_copy);
+        let intermediate = info.defaultadder.sub(self, r.clone(), divisor.clone(), Zero);
+        let mut r_copy = intermediate.clone();
+        r_copy.reverse();
+        // println!("After sub: {:?}", r_copy);
+        let decide_bit = *intermediate.last().unwrap_or(&Zero);
+        q[n - i - 1] = self.not(decide_bit);
+        // intermediate.iter_mut().for_each(|x| *x = self.and(*x, decide_bit));
+        let mut readd = divisor.clone();
+        readd.iter_mut().for_each(|x| *x = self.and(*x, decide_bit));
+        let mut r_copy = readd.clone();
+        r_copy.reverse();
+        // println!("readd: {:?}", r_copy);
+        r = info.defaultadder.add(self, readd, intermediate, Zero);
+        r.truncate(n);
+        let mut r_copy = r.clone();
+        r_copy.reverse();
+        // println!("Remainder after restoring: {:?}", r_copy);
+        if i < (n - 1) {
+            shift_right(&mut r, 1);
+        }
+        let mut r_copy = q.clone();
+        r_copy.reverse();
+        // println!("Quotient: {:?}", r_copy);
+    }
+    IntDivResult { q, r, ok }
+}
+
     pub fn get_divider_circuit(info: DivInfo) -> Circuit {
         // create a new circuit object to store the circuit and its stats
         let mut circuit = Circuit::new();
@@ -112,6 +172,7 @@ impl Circuit {
         let IntDivResult { mut q, mut r, ok } = match info.division_method {
             Method::Newton => { circuit.div_newton(dividend.clone(), divisor.clone(), info) }
             Method::Goldschmidt => { circuit.goldschmidt_divider(dividend.clone(), divisor.clone(), info) }
+            Method::Restoring => { circuit.restoring_division(dividend.clone(), divisor.clone(), info) }
         };
 
         if info.dividend_size == DividendSize::DividendDouble {
@@ -160,8 +221,8 @@ impl Circuit {
             Estimate::Flip5bit => self.flip_estimate(&shifted_divisor),
             Estimate::Table10bit => self.table_estimate(&shifted_divisor),
             _ => {
-                let mut estimate = Bit::zeroes(n);
-                estimate.append(&mut vec![One, Zero, Zero]);
+                let mut estimate = Bit::zeroes(n - 1);
+                estimate.append(&mut vec![One, One, Zero, Zero]);
                 estimate
             }
         };
@@ -172,11 +233,11 @@ impl Circuit {
         // // println!{"negative_estimate {:?}", negative_estimate};
         let necessary_its = match info.estimator {
             Estimate::Flip5bit => (0.max(n as i32 - 6) as f64 / 5_f64 + 1_f64).ceil().log2().ceil() as usize,
-            Estimate::Linear => /* ((n + 1) as f64 / (27f64).log2()).log2().ceil() as usize */ (0.max(n as i32 - 2) as f64 + 1_f64).ceil().log2().ceil() as usize,
-            Estimate::Table10bit => (0.max(n as i32 - 10) as f64 / 5_f64 + 1_f64).ceil().log2().ceil() as usize,
-            Estimate::None => (0.max(n as i32 - 2) as f64 + 1_f64).ceil().log2().ceil() as usize,
+            // Estimate::Linear => /* ((n + 1) as f64 / (27f64).log2()).log2().ceil() as usize */ (0.max(n as i32 - 2) as f64 + 1_f64).ceil().log2().ceil() as usize,
+            Estimate::Table10bit => if n < 11 { 0 } else { ((0.max(n as i32) as f64).ceil().log2().ceil() as usize) - 2 },
+            Estimate::None => /* (0.max(n as i32 - 2) as f64 + 1_f64).ceil().log2().ceil() as usize */ (0.max(n as i32) as f64).ceil().log2().ceil() as usize,
         };
-        // println!("{necessary_its} :: {n}");
+        println!("{necessary_its} :: {n}");
 
         (shift_left_by, estimate, d_plus, d_minus, shifted_divisor, ok, necessary_its, n)
     }
@@ -248,7 +309,7 @@ impl Circuit {
         restored_estimate.truncate(n + 1);
         // println!("restored_estimate {:?}", restored_estimate);
 
-        let mut q0 = self.mul_unsigned_clean(restored_estimate.clone(), dividend.clone(), None, info.defaultadder);
+        let mut q0 = self.umul_dadda(restored_estimate.clone(), dividend.clone(), None, info.defaultadder);
         // let mut q0 = self.mul_unsigned_clean(estimate.clone(), shifted_dividend.clone(), None);
 
         // println!("q {:?}", q0);
@@ -266,7 +327,7 @@ impl Circuit {
 
         // println!("q_plus {:?}, q_minus {:?}", q_plus, q_minus);
 
-        let mut qz = self.mul_unsigned_clean(q0.clone(), divisor.clone(), None, info.defaultadder);
+        let mut qz = self.umul_dadda(q0.clone(), divisor.clone(), None, info.defaultadder);
 
         // println!("qz {:?}", qz);
 
@@ -354,21 +415,21 @@ impl Circuit {
         factors.push(x);
         for i in 0..necessary_iters {
             let current_factor = factors[i].clone();
-            let mut new_factor = self.square_u(current_factor, 0, info.defaultadder);
+            let mut new_factor = self.usquare_dadda(current_factor, 0, info.defaultadder);
             new_factor.drain(0..n);
             factors.push(new_factor);
         }
 
         let mut first_factor = factors.get(0).unwrap_or(&vec![Zero]).clone();
         first_factor.push(One);
-        let mut p = self.mul_unsigned_clean(first_factor, shifted_dividend, None, info.defaultadder);
+        let mut p = self.umul_dadda(first_factor, shifted_dividend, None, info.defaultadder);
         p.drain(0..n);
 
         if factors.len() > 1 {
             for i in 1..factors.len() {
                 let mut factor = factors[i].clone();
                 factor.push(One);
-                p = self.mul_unsigned_clean(p, factor, None, info.defaultadder);
+                p = self.umul_dadda(p, factor, None, info.defaultadder);
                 p.drain(0..(n));
                 p.truncate(n+1);
             }
@@ -395,7 +456,7 @@ impl Circuit {
         q_plus.truncate(n);
         q_minus.truncate(n);
 
-        let mut qz = self.mul_unsigned_clean(q0.clone(), divisor.clone(), None, info.defaultadder);
+        let mut qz = self.umul_dadda(q0.clone(), divisor.clone(), None, info.defaultadder);
         qz.truncate(n);
 
         let mut r0 = info.defaultadder.sub(self, dividend.clone(), qz.clone(), Zero);
@@ -420,5 +481,179 @@ impl Circuit {
             r: r_final,
             ok,
         }
+    }
+}
+
+impl LevelizedCircuit {
+    pub fn div_newton(
+        &mut self,
+        dividend: Vec<Bit>,
+        divisor: Vec<Bit>,
+        info: DivInfo
+    ) -> IntDivResult {
+        let (shift_left_by, estimate, shifted_divisor, result_valid, necessary_its, n) = self.div_newton_precalculations(&dividend, &divisor, &info);
+        let estimate = self.circuit.div_newton_iterations(estimate, shifted_divisor.clone(), n, necessary_its, &info);
+        self.div_newton_correction_step(divisor, dividend, estimate, shift_left_by, result_valid, n, &info)
+    }
+
+    #[inline(always)]
+    fn div_newton_precalculations(
+        &mut self,
+        dividend: &Vec<Bit>,
+        divisor: &Vec<Bit>,
+        info: &DivInfo) -> (Vec<Bit>, Vec<Bit>, Vec<Bit>, Bit, usize, usize) {
+        let ok = self.circuit.or_of_all(divisor.clone());
+        if dividend.len() != divisor.len() {
+            panic!("Divisor and Dividend do not have the same number of bits");
+        }
+        if divisor.len() == 0 || dividend.len() == 0 {
+            panic!("One of the input bit vectors was empty!");
+        }
+
+        let n = divisor.len();
+        // println!{"before shifting {:?}", divisor};
+        // println!("dividend_alt_1 {:?}, dividend_alt2 {:?}", d_plus, d_minus);
+        let mut shift_left_by = self.circuit.lzc(divisor.clone());
+        // we dont need the all or bit
+        shift_left_by.pop();
+        // println!{"shifting left by {:?}", shift_left_by};
+        let shifted_divisor = self.circuit.shift(divisor.clone(), shift_left_by.clone(), Shift::Left, Zero);
+        // println!{"after shifting {:?}", shifted_divisor};
+
+        let mut estimate = Bit::zeroes(n - 1);
+        estimate.append(&mut vec![One, One, Zero, Zero]);
+
+        // println!{"after appending {:?}", shifted_divisor};
+        // println!{"estimate {:?}", estimate};
+        // let mut negative_estimate = self.get_negative(estimate.clone());
+        // // println!{"negative_estimate {:?}", negative_estimate};
+        let necessary_its = match info.estimator {
+            Estimate::Flip5bit => (0.max(n as i32 - 6) as f64 / 5_f64 + 1_f64).ceil().log2().ceil() as usize,
+            // Estimate::Linear => /* ((n + 1) as f64 / (27f64).log2()).log2().ceil() as usize */ (0.max(n as i32 - 2) as f64 + 1_f64).ceil().log2().ceil() as usize,
+            Estimate::Table10bit => if n < 11 { 0 } else { ((0.max(n as i32) as f64).ceil().log2().ceil() as usize) - 2 },
+            Estimate::None => /* (0.max(n as i32 - 2) as f64 + 1_f64).ceil().log2().ceil() as usize */ (0.max(n as i32) as f64).ceil().log2().ceil() as usize,
+        };
+        println!("{necessary_its} :: {n}");
+
+        (shift_left_by, estimate, shifted_divisor, ok, necessary_its, n)
+    }
+
+    fn div_newton_correction_step(&mut self, divisor: Vec<Bit>, dividend: Vec<Bit>, estimate: Vec<Bit>, mut shift_left_by: Vec<Bit>, ok: Bit, n: usize, info: &DivInfo) -> IntDivResult {
+        let mut one = vec![One];
+        one.append(&mut Bit::zeroes(shift_left_by.len() - 1));
+        self.circuit.not_all(&mut shift_left_by);
+        let mut v_n = Bit::get_bits_vec_usize(divisor.len());
+        let num_bits = (divisor.len() as f64).log2().floor() as usize + 1;
+        v_n.truncate(num_bits);
+        // println!("n: {:?}", v_n);
+        let mut shift_right_by = info.defaultadder.sub(&mut self.circuit, v_n, shift_left_by, Zero);
+        shift_right_by.truncate(num_bits);
+        // println!("right_shift_by {:?}", shift_right_by);
+        let mut restored_estimate = self.circuit.shift(estimate.clone(), shift_right_by, Shift::Right, One);
+        // restored_estimate can be 1 caution!
+        restored_estimate.truncate(n + 1);
+        // println!("restored_estimate {:?}", restored_estimate);
+
+        let mut q0 = self.circuit.umul_dadda(restored_estimate.clone(), dividend.clone(), None, info.defaultadder);
+        // let mut q0 = self.mul_unsigned_clean(estimate.clone(), shifted_dividend.clone(), None);
+
+        // println!("q {:?}", q0);
+
+        q0.drain(0..n);
+        q0.truncate(n);
+
+        // println!("q {:?}", q0);
+
+        let q_plus = self.add(&q0, &vec![], One);
+        let q_minus = self.sub(&q0, &vec![One], Zero);
+
+        // println!("q_plus {:?}, q_minus {:?}", q_plus, q_minus);
+
+        let qd = self.mul(q0.clone(), divisor.clone(), None, info.defaultadder);
+
+        let mut d_plus = self.add(&dividend, &divisor, Zero);
+        let mut d_minus = self.sub(&dividend, &divisor, Zero);
+
+        // perform sign extension for d_plus and d_minus
+        let len_without_sign = qd.len();
+        let len_sign_extension = len_without_sign - d_plus.len();
+        let sign = *d_minus.last().unwrap_or(&Zero);
+        for _ in 0..len_sign_extension {
+            d_plus.push(Zero);
+            d_minus.push(sign);
+        }
+
+        // println!("qz {:?}", qz);
+
+        // println!("qz {:?}", qz);
+
+        let r0 = self.sub(&dividend, &qd, Zero);
+        let r_plus = self.sub(&d_minus, &qd, Zero);
+        let r_minus = self.sub(&d_plus, &qd, Zero);
+
+        // println!("r {:?}, r_plus {:?}, r_minus {:?}", r0, r_plus, r_minus);
+
+        let s1 = *r0.last().unwrap_or(&Zero);
+        if let Bit::Var(l) = s1 {
+            self.substitution_levels.insert(l.n, usize::MAX);
+        }
+
+        let s0 = *r_plus.last().unwrap_or(&Zero);
+        if let Bit::Var(l) = s0 {
+            self.substitution_levels.insert(l.n, usize::MAX);
+        }
+
+        // println!("s0: {:?}, s1: {:?}", s0, s1);
+
+        // println!("r {:?}, r_plus {:?}, r_minus {:?}", r0, r_plus, r_minus);
+
+        let q_final = self.mux_n_4(&q_plus, &q0, &vec![Zero], &q_minus, (s0, s1));
+        let r_final = self.mux_n_4(&r_plus, &r0, &vec![Zero], &r_minus, (s0, s1));
+        // println!("q_final {:?}, r_final {:?}, result is valid: {:?}", q_final, r_final, ok);
+
+        IntDivResult {
+            q: q_final,
+            r: r_final,
+            ok,
+        }
+    }
+
+    pub fn get_divider_circuit(info: DivInfo) -> LevelizedCircuit {
+        // create a new levelized circuit object to store the circuit, substitution levels and its stats
+        let mut lc = LevelizedCircuit::new();
+
+        let bits = info.number_bits;
+
+        let mut divisor = vec![];
+        let mut dividend = vec![];
+        for _ in 0..bits {
+            dividend.push(lc.circuit.new_line());
+        }
+        if info.dividend_size == DividendSize::DividendDouble {
+            for _ in 0..(bits - 2) {
+                dividend.push(lc.circuit.new_line());
+            }
+        }
+
+        for _ in 0..bits {
+            divisor.push(lc.circuit.new_line());
+        }
+        if info.dividend_size == DividendSize::DividendDouble {
+            divisor.pop();
+            divisor.push(Zero);
+            for _ in 0..(bits - 2) {
+                divisor.push(Zero);
+            }
+        }
+
+        let IntDivResult { q, 
+            r, ok } = lc.div_newton(dividend.clone(), divisor.clone(), info);
+
+        lc.circuit.add_as_io(&dividend, "R_0", false);
+        lc.circuit.add_as_io(&divisor, "D", false);
+        lc.circuit.add_as_io(&q, "Q", true);
+        lc.circuit.add_as_io(&r, "R_n1", true);
+        lc.circuit.add_as_io(&vec![ok], "Valid", true);
+        lc
     }
 }

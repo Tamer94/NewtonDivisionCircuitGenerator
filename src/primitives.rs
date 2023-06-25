@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use crate::data::{
     Bit, Bit::One, Bit::Var, Bit::Zero, Circuit, Gate, Line,
-    Wire
+    Wire, LevelizedCircuit
 };
 
 pub trait Get<T> {
@@ -205,5 +205,122 @@ impl Circuit {
         for bit in bits {
             *bit = self.not(*bit);
         }
+    }
+}
+
+impl LevelizedCircuit {
+    #[inline(always)]
+    pub fn not(&mut self, i1: Bit) -> Bit {
+        let bit;
+        let gate;
+        match i1 {
+            Var(j1) => {
+                gate = Gate::Not(j1);
+            }
+            One => {
+                gate = Gate::Not(self.circuit.get_one_wire());
+            }
+            Zero => {
+                gate = Gate::Not(self.circuit.get_zero_wire());
+            }
+        }
+
+        self.circuit.stats.gatter_count += 1;
+        let line = Line {
+            level: gate.get_next_level(),
+            n: self.circuit.stats.add_line(),
+        };
+        self.circuit.wires.push(Wire::new(line, gate));
+        bit = Var(line);
+        self.substitution_levels.insert(line.n, self.current_level);
+        self.current_level -= 1;
+        bit
+    }
+
+    #[inline(always)]
+    pub fn or(&mut self, i1: Bit, i2: Bit) -> Bit {
+        let bit;
+        let gate;
+        let in1 = match i1 {
+            Zero => self.circuit.get_zero_wire(),
+            One => self.circuit.get_one_wire(),
+            Var(l) => l,
+        };
+
+        let in2 = match i2 {
+            Zero => self.circuit.get_zero_wire(),
+            One => self.circuit.get_one_wire(),
+            Var(l) => l,
+        };
+
+        gate = Gate::Or(in1, in2);
+        self.circuit.stats.gatter_count += 1;
+        let line = Line {
+            level: gate.get_next_level(),
+            n: self.circuit.stats.add_line(),
+        };
+        self.circuit.wires.push(Wire::new(line, gate));
+        bit = Var(line);
+        self.substitution_levels.insert(line.n, self.current_level);
+        self.current_level -= 1;
+        bit
+    }
+
+    #[inline(always)]
+    pub fn and(&mut self, i1: Bit, i2: Bit) -> Bit {
+        let bit;
+        let gate;
+        let in1 = match i1 {
+            Zero => self.circuit.get_zero_wire(),
+            One => self.circuit.get_one_wire(),
+            Var(l) => l,
+        };
+
+        let in2 = match i2 {
+            Zero => self.circuit.get_zero_wire(),
+            One => self.circuit.get_one_wire(),
+            Var(l) => l,
+        };
+
+        gate = Gate::And(in1, in2);
+        self.circuit.stats.gatter_count += 1;
+        let line = Line {
+            level: gate.get_next_level(),
+            n: self.circuit.stats.add_line(),
+        };
+        self.circuit.wires.push(Wire::new(line, gate));
+        bit = Var(line);
+        self.substitution_levels.insert(line.n, self.current_level);
+        self.current_level -= 1;
+        bit
+    }
+
+    #[inline(always)]
+    pub fn xor(&mut self, i1: Bit, i2: Bit) -> Bit {
+        let bit;
+        let gate;
+        let in1 = match i1 {
+            Zero => self.circuit.get_zero_wire(),
+            One => self.circuit.get_one_wire(),
+            Var(l) => l,
+        };
+
+        let in2 = match i2 {
+            Zero => self.circuit.get_zero_wire(),
+            One => self.circuit.get_one_wire(),
+            Var(l) => l,
+        };
+
+        gate = Gate::Or(in1, in2);
+        self.circuit.stats.gatter_count += 1;
+        let line = Line {
+            level: gate.get_next_level(),
+            n: self.circuit.stats.add_line(),
+        };
+        self.circuit.wires.push(Wire::new(line, gate));
+        bit = Var(line);
+        self.substitution_levels.insert(line.n, self.current_level);
+        self.current_level -= 1;
+        bit
     }
 }

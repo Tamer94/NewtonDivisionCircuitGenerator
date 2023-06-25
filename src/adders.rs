@@ -1,3 +1,4 @@
+use crate::data::{LevelizedCircuit, Line};
 use crate::data::{Bit, Bit::One, Bit::Zero, Circuit};
 use crate::primitives::*;
 
@@ -102,6 +103,66 @@ impl Circuit {
         }
         s_vector.push(last_carry);
         s_vector
+    }
+
+    pub fn get_cra(bits: usize) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut a = vec![];
+        let mut b = vec![];
+        let select = circuit.new_line();
+
+        for _ in 0..bits {
+            a.push(circuit.new_line());
+            b.push(circuit.new_line());
+        }
+
+        let result = circuit.cra(a.clone(), b.clone(), select);
+
+        circuit.add_as_io(&a, "X", false);
+        circuit.add_as_io(&b, "Y", false);
+        circuit.add_as_io(&vec![select], "Cin", false);
+        circuit.add_as_io(&result, "S", true);
+        circuit
+    }
+
+    pub fn get_csa(bits: usize) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut a = vec![];
+        let mut b = vec![];
+        let select = circuit.new_line();
+
+        for _ in 0..bits {
+            a.push(circuit.new_line());
+            b.push(circuit.new_line());
+        }
+
+        let result = circuit.csa(a.clone(), b.clone(), select);
+
+        circuit.add_as_io(&a, "X", false);
+        circuit.add_as_io(&b, "Y", false);
+        circuit.add_as_io(&vec![select], "Cin", false);
+        circuit.add_as_io(&result, "S", true);
+        circuit
+    }
+
+    pub fn get_ksa(bits: usize) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut a = vec![];
+        let mut b = vec![];
+        let select = circuit.new_line();
+
+        for _ in 0..bits {
+            a.push(circuit.new_line());
+            b.push(circuit.new_line());
+        }
+
+        let result = circuit.ksa(a.clone(), b.clone(), select);
+
+        circuit.add_as_io(&a, "X", false);
+        circuit.add_as_io(&b, "Y", false);
+        circuit.add_as_io(&vec![select], "Cin", false);
+        circuit.add_as_io(&result, "S", true);
+        circuit
     }
 
     pub fn crs(&mut self, minuend: Vec<Bit>, subtrahend: Vec<Bit>, c_in: Bit) -> Vec<Bit> {
@@ -268,8 +329,8 @@ impl Circuit {
             let (i1, i2) = (s1.get_or(column, Zero), s2.get_or(column, Zero));
             p = self.xor(i1, i2);
             g = self.and(i1, i2);
-            if c_in == One && first_entry {
-                let temp = self.and(p, One);
+            if c_in != Zero && first_entry {
+                let temp = self.and(p, c_in);
                 g = self.or(temp, g);
             }
             p_g[column].push(PropagateGenerate { p, g });
@@ -297,6 +358,8 @@ impl Circuit {
             let PropagateGenerate { p, g: _ } = p_g[column][0];
             if column > 0 {
                 c_in = p_g[column - 1][depth].g;
+            } else {
+                c_in = c_in;
             }
             s.push(self.a_final(p, g, c_in).s);
         }
@@ -359,5 +422,71 @@ impl Circuit {
         s.push(p_g[s.len() - 1][depth].g);
 
         s
+    }
+}
+
+impl LevelizedCircuit {
+    #[inline(always)]
+    pub fn half_adder(&mut self, i1: Bit, i2: Bit) -> Sum2 {
+        let s = self.xor(i1, i2);
+        let c = self.and(i1, i2);
+        Sum2 { c: c, s: s }
+    }
+
+    #[inline(always)]
+    pub fn full_adder(&mut self, i1: Bit, i2: Bit, c: Bit) -> Sum2 {
+        let sum1 = self.half_adder(i1, i2);
+        let sum2 = self.half_adder(sum1.s, c);
+        let c = self.or(sum1.c, sum2.c);
+        Sum2 { c: c, s: sum2.s }
+    }
+
+    #[inline(always)]
+    pub fn half_sub(&mut self, minuend: Bit, subtrahend: Bit) -> Sum2 {
+        let s = self.xor(minuend, subtrahend);
+        let temp = self.not(minuend);
+        let c = self.and(temp, subtrahend);
+        Sum2 { c: c, s: s }
+    }
+
+    #[inline(always)]
+    pub fn full_sub(&mut self, minuend: Bit, subtrahend: Bit, c_in: Bit) -> Sum2 {
+        let sum1 = self.half_sub(minuend, subtrahend);
+        let sum2 = self.half_sub(sum1.s, c_in);
+        let c_out = self.or(sum2.c, sum1.c);
+        Sum2 {
+            c: c_out,
+            s: sum2.s,
+        }
+    }
+
+    pub fn add(&mut self, s1: &Vec<Bit>, s2: &Vec<Bit>, c_in: Bit) -> Vec<Bit> {
+        let mut c_in = c_in;
+        let n = s1.len().max(s2.len());
+        let mut s_vector = Vec::with_capacity(n + 1);
+        let mut last_carry = Zero;
+        for idx in 0..n {
+            let Sum2 { c, s } = self.full_adder(s1.get_or(idx, Zero), s2.get_or(idx, Zero), c_in);
+            c_in = c;
+            s_vector.push(s);
+            last_carry = c;
+        }
+        s_vector.push(last_carry);
+        s_vector
+    }
+
+    pub fn sub(&mut self, minuend: &Vec<Bit>, subtrahend: &Vec<Bit>, c_in: Bit) -> Vec<Bit> {
+        let mut c_in = c_in;
+        let n = minuend.len().max(subtrahend.len());
+        let mut s_vector = Vec::with_capacity(n);
+        let mut last_carry = Zero;
+        for idx in 0..n {
+            let Sum2 { c, s } = self.full_sub(minuend.get_or(idx, Zero), subtrahend.get_or(idx, Zero), c_in);
+            c_in = c;
+            s_vector.push(s);
+            last_carry = c;
+        }
+        s_vector.push(last_carry);
+        s_vector
     }
 }
