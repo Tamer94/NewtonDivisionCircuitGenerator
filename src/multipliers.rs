@@ -1,8 +1,8 @@
-use crate::data::{Bit, Bit::Zero, Circuit, Adder};
+use crate::{data::{Bit, Bit::Zero, Circuit, Adder, LevelizedCircuit}, cli::CircuitKind, dividers::SubMethod};
 use std::{collections::VecDeque};
 
 impl Circuit {
-    pub fn mul_unsigned_clean(
+    pub fn umul_dadda(
         &mut self,
         m1: Vec<Bit>,
         m2: Vec<Bit>,
@@ -92,7 +92,7 @@ impl Circuit {
         adder.add(self, s1, s2, Zero)
     }
 
-    pub fn square_u(&mut self, m1: Vec<Bit>, ignore: usize, adder: Adder) -> Vec<Bit> {
+    pub fn usquare_dadda(&mut self, m1: Vec<Bit>, ignore: usize, adder: Adder) -> Vec<Bit> {
         let n1 = m1.len();
         let new_len = 2 * n1;
         let max_rows = (n1 / 2) + 1;
@@ -201,7 +201,7 @@ impl Circuit {
             minuend.append(&mut tail);
         }
         self.not_all(&mut minuend);
-        let mut p = self.mul_unsigned_clean(f1, f2, Some(minuend), Adder::KSA);
+        let mut p = self.umul_dadda(f1, f2, Some(minuend), Adder::KSA);
         p.pop(); //#fixme! there seem to be certain bits lengths of the input vectors where the last bit is messed up
         self.not_all(&mut p);
         p
@@ -256,6 +256,109 @@ impl Circuit {
             }
             product = adder.add(self, s1, s2, Zero);
         }
+
+        product
+    }
+
+    pub fn get_umul(bits: usize, kind: CircuitKind, fused: SubMethod, adder: Adder) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut fac1 = Vec::with_capacity(bits);
+        let mut fac2 = Vec::with_capacity(bits);
+        let mut summand = Vec::with_capacity(bits);
+
+        for _ in 0..bits {
+            fac1.push(circuit.new_line());
+        }
+
+        if kind != CircuitKind::SquareDadda {
+            for _ in 0..bits {
+                fac2.push(circuit.new_line());
+            }
+        }
+
+        if fused == SubMethod::Fused {
+            for _ in 0..bits {
+                summand.push(circuit.new_line());
+            }
+        }
+        let mut result = vec![];
+
+        match kind {
+            CircuitKind::SquareDadda => { 
+                result = circuit.usquare_dadda(fac1.clone(), 0, adder);
+            }
+            CircuitKind::MulDadda => {
+                if fused == SubMethod::Fused {
+                    result = circuit.umul_dadda(fac1.clone(), fac2.clone(), Some(summand.clone()), adder);
+                } else {
+                    result = circuit.umul_dadda(fac1.clone(), fac2.clone(), None, adder);
+                }
+            }
+            CircuitKind::ArrayMul => {
+                if fused == SubMethod::Fused {
+                    result = circuit.array_mul(fac1.clone(), fac2.clone(), Some(summand.clone()), adder);
+                } else {
+                    result = circuit.array_mul(fac1.clone(), fac2.clone(), None, adder);
+                }
+            }
+
+            _ => {}
+        }
+
+        circuit.add_as_io(&fac1, "X", false);
+        if kind != CircuitKind::SquareDadda {
+            circuit.add_as_io(&fac2, "Y", false);
+        }
+        if fused == SubMethod::Fused {
+            circuit.add_as_io(&summand, "Z", false);
+        }
+
+        circuit.add_as_io(&result, "P", true);
+
+        circuit
+    }
+}
+
+impl LevelizedCircuit {
+    // naive version of an array multiplier depth O(n)
+    #[allow(dead_code)]
+    pub fn mul(&mut self, m1: Vec<Bit>, m2: Vec<Bit>, s: Option<Vec<Bit>>, adder: Adder) -> Vec<Bit> {
+        let n = m1.len() + m2.len();
+        let s = s.unwrap_or(Vec::new());
+        let mut product = Bit::zeroes(n);
+
+        let mut sum;
+        let mut c_in1;
+        let mut c_in2;
+        let mut sums = Bit::zeroes(n);
+        let mut carrys = Vec::with_capacity(n);
+        for _ in 0..n {
+            carrys.push(Vec::with_capacity(2));
+        }
+
+        // counter counts how many of the summand's s bits we have used in case a summand s was given as input
+        // let mut counter = 0;
+        for idx1 in 0..m1.len() {
+            for idx2 in 0..m2.len() {
+                sum = sums[idx1 + idx2];
+                c_in1 = carrys[idx1 + idx2].pop().unwrap_or(Zero);
+                c_in2 = carrys[idx1 + idx2].pop().unwrap_or(Zero);
+                if sum == Zero && c_in2 != Zero {
+                    sum = c_in2;
+                }
+
+                let partial_product = self.and(m1[idx1], m2[idx2]);
+                let intermediate_sum = self.full_adder(partial_product, sum, c_in1);
+                sums[idx1 + idx2] = intermediate_sum.s;
+                carrys[idx1 + idx2 + 1].push(intermediate_sum.c);
+            }
+        }
+
+        // collect result bits and carry_out
+        for idx in 0..n {
+            product[idx] = sums[idx];
+        }
+        product[n - 1] = carrys[n - 1].pop().unwrap_or(Zero);
 
         product
     }

@@ -1,5 +1,9 @@
+use std::collections::VecDeque;
+use std::thread::current;
+
 use num::Integer;
 
+use crate::data::LevelizedCircuit;
 // Here the helping circuits for Divison with the Newton Method are contained among them MUXes, LZC (LeadingZeroCounter) and
 // BarrelShifter
 use crate::data::{
@@ -28,6 +32,26 @@ impl Circuit {
             selected.push(self.or(high, low));
         }
         selected
+    }
+
+    pub fn get_mux_n_1(bits: usize) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut a = vec![];
+        let mut b = vec![];
+        let select = circuit.new_line();
+
+        for _ in 0..bits {
+            a.push(circuit.new_line());
+            b.push(circuit.new_line());
+        }
+
+        let result = circuit.mux_n_1(&a, &b, select);
+
+        circuit.add_as_io(&a, "X", false);
+        circuit.add_as_io(&b, "Y", false);
+        circuit.add_as_io(&vec![select], "SEL", false);
+        circuit.add_as_io(&result, "S", true);
+        circuit
     }
 
     // for choosing between 3 n-bit vectors
@@ -88,6 +112,34 @@ impl Circuit {
         }
 
         selected
+    }
+
+    pub fn get_mux_n_2(bits: usize) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut a = vec![];
+        let mut b = vec![];
+        let mut c = vec![];
+        let mut d = vec![];
+        let select_0 = vec![circuit.new_line()];
+        let select_1 = vec![circuit.new_line()];
+
+        for _ in 0..bits {
+            a.push(circuit.new_line());
+            b.push(circuit.new_line());
+            c.push(circuit.new_line());
+            d.push(circuit.new_line());
+        }
+
+        let result = circuit.mux_n_4(&a, &b, &c, &d, (select_0[0], select_1[0]));
+
+        circuit.add_as_io(&a, "X", false);
+        circuit.add_as_io(&b, "Y", false);
+        circuit.add_as_io(&c, "P", false);
+        circuit.add_as_io(&d, "Q", false);
+        circuit.add_as_io(&select_0, "SEL0", false);
+        circuit.add_as_io(&select_1, "SEL1", false);
+        circuit.add_as_io(&result, "S", true);
+        circuit
     }
 
     // implements a barrel shifter non circular, both left and rightshift is possible
@@ -460,5 +512,148 @@ impl Circuit {
         }
         estimate.reverse();
         estimate
+    }
+
+    // comperator circuit for a < b
+    // has two outputs LT (a < b ?) and EQ (a = b ?)
+    // if both outputs are low you'll get GT (a > b ?) obviously
+    pub fn less_than(&mut self, a: &Vec<Bit>, b: &Vec<Bit>) -> (Bit, Bit) {
+        let max_bits = a.len().max(b.len());
+        // on the first level we compare for each bit if a[i] is less than b[i] and also if 
+        // a[i] is equal to b[i]
+
+        // we need this que to later merge the outputs from the first level and further down
+        // the road each time for the previous level we merge the corresponding two output
+        // signals
+        let mut previous = VecDeque::with_capacity(max_bits * 2);
+        let mut current = VecDeque::with_capacity(2 * max_bits);
+        for i in (0..max_bits).rev() {
+            let a_i = a.get_or(i, Zero);
+            let b_i = b.get_or(i, Zero);
+
+            // EQ for two bits is the XNOR (≡)
+            let eq = self.xor(a_i, b_i);
+            let eq = self.not(eq);
+
+            // LT is !a[i] & b[i]
+            let lt = self.not(a_i);
+            let lt = self.and(lt, b_i);
+
+            previous.push_back(lt);
+            previous.push_back(eq);
+            // println!("{previous:?}");
+        }
+
+        while previous.len() > 2 {
+            while !previous.is_empty() {
+                let left_lt = previous.pop_front().unwrap();
+                let left_eq = previous.pop_front().unwrap();
+                let right_lt = previous.pop_front().unwrap_or(Zero);
+                let right_eq = previous.pop_front().unwrap_or(One);
+    
+                // now merge the the two LT signals
+                // new LT = LT_left || (LT_right & EQ_left)
+                let lt = self.and(right_lt, left_eq);
+                let lt = self.or(left_lt, lt);
+    
+                // merging EQ_left and EQ_right is straight forward
+                // new EQ = (EQ_left & EQ_right)
+                let eq = self.and(left_eq, right_eq);
+    
+                current.push_back(lt);
+                current.push_back(eq);
+                // println!("{current:?}");
+            }
+            previous = current.clone();
+            current.clear();
+        }
+
+        (previous.pop_front().unwrap(), previous.pop_front().unwrap())
+    }
+}
+
+impl Circuit {
+    pub fn get_lzc_circuit(bits: usize, remove_dead_ends: bool) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut number = vec![];
+        // create input vector of bit variables
+        for _ in 0..bits {
+            number.push(circuit.new_line());
+        }
+
+        let leading_zero_count = circuit.lzc(number.clone());
+
+        circuit.add_as_io(&number, "n", false);
+        circuit.add_as_io(&leading_zero_count, "lzc", true);
+        if remove_dead_ends {
+            circuit.remove_dead_ends();
+        }
+        circuit
+    }
+
+    pub fn get_lt(bits: usize) -> Circuit {
+        let mut circuit = Circuit::new();
+        let mut a = vec![];
+        let mut b = vec![];
+
+        for _ in 0..bits {
+            a.push(circuit.new_line());
+        }
+
+        for _ in 0..bits {
+            b.push(circuit.new_line());
+        }
+
+        let (lt, eq) = circuit.less_than(&a, &b);
+
+        circuit.add_as_io(&a, "X", false);
+        circuit.add_as_io(&b, "Y", false);
+        circuit.add_as_io(&vec![lt], "LT", true);
+        circuit.add_as_io(&vec![eq], "EQ", true);
+        circuit
+    }
+}
+
+impl LevelizedCircuit {
+        // for choosing between 4 n-bit vectors
+    // its expected that all 4 bit vectors have the same number of bits
+    // otherwise this function will crash
+    // select (s0, s1) => input_i
+    // select (0,0) => input1
+    // select (1,0) => input2
+    // select (0,1) => input3
+    // select (1,1) => input4
+    pub fn mux_n_4(
+        &mut self,
+        b1: &Vec<Bit>,
+        b2: &Vec<Bit>,
+        b3: &Vec<Bit>,
+        b4: &Vec<Bit>,
+        select: (Bit, Bit),
+    ) -> Vec<Bit> {
+        let n = b1.len();
+        let mut selected = Vec::with_capacity(n);
+        let s0_not = self.not(select.0);
+        let s1_not = self.not(select.1);
+
+        for i in 0..n {
+            let b1_temp = self.and(b1.get_or(i, Zero), s0_not);
+            let b2_temp = self.and(b2.get_or(i, Zero), select.0);
+            let b3_temp = self.and(b3.get_or(i, Zero), s0_not);
+            let b4_temp = self.and(b4.get_or(i, Zero), select.0);
+
+            let b1_a = self.and(b1_temp, s1_not);
+            let b2_a = self.and(b2_temp, s1_not);
+            let b3_a = self.and(b3_temp, select.1);
+            let b4_a = self.and(b4_temp, select.1);
+
+            let temp1 = self.or(b1_a, b2_a);
+            let temp2 = self.or(b3_a, b4_a);
+            let temp3 = self.or(temp1, temp2);
+
+            selected.push(temp3);
+        }
+
+        selected
     }
 }
