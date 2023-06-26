@@ -569,7 +569,7 @@ impl LevelizedCircuit {
 
         // println!("q_plus {:?}, q_minus {:?}", q_plus, q_minus);
 
-        let qd = self.mul(q0.clone(), divisor.clone(), None, info.defaultadder);
+        let qd = self.mul(q0.clone(), divisor.clone(), None);
 
         let mut d_plus = self.add(&dividend, &divisor, Zero);
         let mut d_minus = self.sub(&dividend, &divisor, Zero);
@@ -620,7 +620,7 @@ impl LevelizedCircuit {
 
     pub fn get_divider_circuit(info: DivInfo) -> LevelizedCircuit {
         // create a new levelized circuit object to store the circuit, substitution levels and its stats
-        let mut lc = LevelizedCircuit::new();
+        let mut lc = LevelizedCircuit::new(1 << 32);
 
         let bits = info.number_bits;
 
@@ -646,8 +646,7 @@ impl LevelizedCircuit {
             }
         }
 
-        let IntDivResult { q, 
-            r, ok } = lc.div_newton(dividend.clone(), divisor.clone(), info);
+        let IntDivResult { q, r, ok } = lc.div_newton(dividend.clone(), divisor.clone(), info);
 
         lc.circuit.add_as_io(&dividend, "R_0", false);
         lc.circuit.add_as_io(&divisor, "D", false);

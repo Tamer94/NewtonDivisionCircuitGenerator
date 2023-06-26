@@ -1,3 +1,4 @@
+#![allow(unused)]
 mod adders;
 mod circuit_tests;
 mod data;
@@ -7,10 +8,12 @@ mod multipliers;
 mod primitives;
 mod cli;
 mod bdd;
+#[cfg(test)]
 mod bdd_test;
 mod sat;
+#[cfg(test)]
 mod sat_test;
-use data::{Circuit};
+use data::{Circuit, LevelizedCircuit};
 use std::time::Instant;
 
 use crate::cli::CircuitKind;
@@ -32,6 +35,10 @@ fn main() -> std::io::Result<()> {
         CircuitKind::Mux2 => {
             let mut circuit = Circuit::get_mux_n_2(divider_builder.number_bits);
             circuit.write_to_file(&format!("MUX_2_{}bit.v", divider_builder.number_bits), "MUX")?;
+        }
+        CircuitKind::LZC => {            
+            let mut circuit = Circuit::get_lzc_circuit(divider_builder.number_bits, remove_dead_ends);
+            circuit.write_to_file(&format!("LZC_{}bit.v", divider_builder.number_bits), "LZC")?;
         }
         CircuitKind::LT => {
             let mut circuit = Circuit::get_lt(divider_builder.number_bits);
@@ -61,6 +68,22 @@ fn main() -> std::io::Result<()> {
             let mut circuit = Circuit::get_umul(divider_builder.number_bits, additional_args.circuit_kind, additional_args.sub_method, additional_args.preferred_adder);
             circuit.write_to_file(&format!("USQUARE_DADDA_{}bit.v", divider_builder.number_bits), "SQUARE")?;
         }
+        CircuitKind::LEVELIZED => {
+            let mut time = Instant::now();
+            let mut lc = LevelizedCircuit::get_divider_circuit(divider_builder);
+            println!("Generating circuit took {:#?} µs", time.elapsed().as_micros());
+        
+            if remove_dead_ends {
+                time = Instant::now();
+                lc.circuit.remove_dead_ends();
+                println!("Removing dead ends took {:#?} µs", time.elapsed().as_micros());
+            }
+            time = Instant::now();
+            lc.write_to_file(&output_filename, &module_name)?;
+            println!("Writing circuit to file took {:#?} µs saved as <{}>", time.elapsed().as_micros(), output_filename);
+            lc.circuit.update_stats();
+            println!("Gatter count: {}, Max depth: {}", lc.circuit.stats.gatter_count, lc.circuit.stats.level_count);
+        }
         _ => {
             let mut time = Instant::now();
             let mut circuit = Circuit::get_divider_circuit(divider_builder);
@@ -76,10 +99,6 @@ fn main() -> std::io::Result<()> {
             println!("Writing circuit to file took {:#?} µs saved as <{}>", time.elapsed().as_micros(), output_filename);
             circuit.update_stats();
             println!("Gatter count: {}, Max depth: {}", circuit.stats.gatter_count, circuit.stats.level_count);
-        
-            let mut circuit = Circuit::get_lzc_circuit(divider_builder.number_bits
-                , remove_dead_ends);
-            circuit.write_to_file(&format!("LZC_{}bit.v", divider_builder.number_bits), "LZC")?;
         }
     }
 

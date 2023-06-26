@@ -322,7 +322,7 @@ impl Circuit {
 impl LevelizedCircuit {
     // naive version of an array multiplier depth O(n)
     #[allow(dead_code)]
-    pub fn mul(&mut self, m1: Vec<Bit>, m2: Vec<Bit>, s: Option<Vec<Bit>>, adder: Adder) -> Vec<Bit> {
+    pub fn mul(&mut self, m1: Vec<Bit>, m2: Vec<Bit>, s: Option<Vec<Bit>>) -> Vec<Bit> {
         let n = m1.len() + m2.len();
         let s = s.unwrap_or(Vec::new());
         let mut product = Bit::zeroes(n);

@@ -311,7 +311,7 @@ impl LevelizedCircuit {
             Var(l) => l,
         };
 
-        gate = Gate::Or(in1, in2);
+        gate = Gate::Xor(in1, in2);
         self.circuit.stats.gatter_count += 1;
         let line = Line {
             level: gate.get_next_level(),

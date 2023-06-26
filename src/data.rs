@@ -4,6 +4,8 @@ use std::io::prelude::*;
 use std::ops::Range;
 use clap::ValueEnum;
 
+const ONE: usize = usize::MAX - 1;
+
 #[macro_export]
 macro_rules! stringify_enum {
     (
@@ -276,9 +278,21 @@ impl Line {
 
     #[inline]
     pub fn to_verilog(&self, io_lines: &HashMap<usize, NamedLine>) -> String {
-        io_lines.get(&self.n).map_or(format!("_{}_", self.n), |l| {
-            format!("{}[{}]", l.name, l.idx)
-        })
+        match self.n {
+            // usize::MAX means zeroWire
+            usize::MAX => {
+                String::from("zeroWire")
+            }
+            // usize::MAX - 1 means oneWire
+            ONE => {
+                String::from("oneWire")
+            }
+            _ => {
+                io_lines.get(&self.n).map_or(format!("_{}_", self.n), |l| {
+                    format!("{}[{}]", l.name, l.idx)
+                })
+            }
+        }
     }
 }
 
@@ -451,10 +465,10 @@ impl Circuit {
     }
 
     #[inline(always)]
-    pub fn new_line_constant_value(&mut self) -> Line {
+    pub fn new_line_constant_value(&mut self, n: usize) -> Line {
         let line = Line {
             level: 0,
-            n: self.stats.add_line(),
+            n,
         };
         line
     }
@@ -498,13 +512,13 @@ impl Circuit {
     }
 
     pub fn set_zero_wire(&mut self) -> Line {
-        let line = self.new_line_constant_value();
+        let mut line = self.new_line_constant_value(usize::MAX);
         self.zero_wire = Some(line);
         line
     }
 
     pub fn set_one_wire(&mut self) -> Line {
-        let line = self.new_line_constant_value();
+        let mut line = self.new_line_constant_value(usize::MAX - 1);
         self.one_wire = Some(line);
         line
     }
@@ -753,11 +767,83 @@ pub struct LevelizedCircuit {
 }
 
 impl LevelizedCircuit {
-    pub fn new() -> Self {
+    pub fn new(current_level_start: usize) -> Self {
         LevelizedCircuit {
             circuit: Circuit::new(),
             substitution_levels: HashMap::new(),
-            current_level: 0,
+            current_level: current_level_start,
         }
+    }
+
+    pub fn write_to_file(&mut self, file_name: &str, module_name: &str) -> std::io::Result<()> {
+        let mut file = File::create(file_name)?;
+        write!(file, "{}", self.to_verilog(module_name))?;
+        Ok(())
+    }
+
+    pub fn to_verilog(&mut self, name: &str) -> String {
+        let mut s = String::new();
+        s.push_str(&self.circuit.verilog_header(name));
+        s.push_str(&self.circuit.all_labels());
+        s.push_str(&self.all_assigns_statements());
+        s.push_str("endmodule");
+        s
+    }
+
+    pub fn all_assigns_statements(&mut self) -> String {
+        let mut s = String::new();
+        if let Some(_) = self.circuit.zero_wire {
+            s.push_str(&format!("assign zeroWire = 1'b0 /*0*/;\n"))
+        }
+        if let Some(_) = self.circuit.one_wire {
+            s.push_str(&format!("assign oneWire = 1'b1 /*0*/;\n"))
+        }
+
+        for wire in &self.circuit.wires {
+            let mut assign_statement = wire.to_verilog(&self.circuit.io_lines);
+            assign_statement.pop();
+            let new_assign_statement = format!("{} /*{}*/\n", assign_statement, self.substitution_levels.get(&wire.out.n).unwrap_or(&(usize::MAX - 1)));
+            s.push_str(&new_assign_statement);
+        }
+
+        for out in &mut self.circuit.outputs.clone() {
+            for (idx, bit) in out.bits.iter().enumerate() {
+                match bit {
+                    &Bit::Zero => {
+                        s.push_str(&format!(
+                            "assign {}[{}] = zeroWire;\n",
+                            out.name,
+                            idx,
+                        ))
+                    }
+                    &Bit::One => {
+                        s.push_str(&format!(
+                            "assign {}[{}] = oneWire;\n",
+                            out.name,
+                            idx,
+                        ))
+                    }
+                    &Bit::Var(l) => {
+                        if !self
+                            .circuit
+                            .io_lines
+                            .get(&l.n)
+                            .unwrap_or(&NamedLine::default())
+                            .is_output
+                        {
+                            println!("hello there!");
+                            s.push_str(&format!(
+                                "assign {}[{}] = {} /*{}*/;\n",
+                                out.name,
+                                idx,
+                                l.to_verilog(&self.circuit.io_lines),
+                                self.substitution_levels.get(&l.n).unwrap_or(&(usize::MAX - 1))
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+        s
     }
 }

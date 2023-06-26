@@ -15,6 +15,7 @@ pub enum CircuitKind {
     SquareDadda,
     ArrayMul,
     DIVIDER,
+    LEVELIZED,
 }
 
 #[derive(Parser, Debug, Clone)]

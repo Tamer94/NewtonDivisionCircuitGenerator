@@ -2,3 +2,4 @@
 *.txt
 ./target/
 ./GeneratedDividers/
+target/*
