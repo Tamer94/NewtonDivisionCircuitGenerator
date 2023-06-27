@@ -701,7 +701,7 @@ impl Circuit {
         while !lines_to_traverse.is_empty() {
             let w_idx = lines_to_traverse.pop_front().unwrap();
             if !wire_indexes.contains(&w_idx) {
-                if w_idx < input_lines_count {
+                if w_idx < input_lines_count || w_idx == ONE || w_idx == usize::MAX {
                     continue;
                 }
                 let w = self.wires[w_idx - input_lines_count];
@@ -832,7 +832,6 @@ impl LevelizedCircuit {
                             .unwrap_or(&NamedLine::default())
                             .is_output
                         {
-                            println!("hello there!");
                             s.push_str(&format!(
                                 "assign {}[{}] = {} /*{}*/;\n",
                                 out.name,
