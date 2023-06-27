@@ -1,7 +1,11 @@
+use std::char::MAX;
+
 use crate::data::{Adder, Mul, LevelizedCircuit};
 use crate::data::{Bit, Bit::One, Bit::Zero, Circuit, Shift};
 use crate::primitives::*;
 use clap::ValueEnum;
+
+const MAX_LEVEL: usize = (1_usize << 32) - 1;
 
 pub struct IntDivResult {
     pub q: Vec<Bit>,
@@ -595,12 +599,12 @@ impl LevelizedCircuit {
 
         let s1 = *r0.last().unwrap_or(&Zero);
         if let Bit::Var(l) = s1 {
-            self.substitution_levels.insert(l.n, usize::MAX);
+            self.substitution_levels.insert(l.n, MAX_LEVEL);
         }
 
         let s0 = *r_plus.last().unwrap_or(&Zero);
         if let Bit::Var(l) = s0 {
-            self.substitution_levels.insert(l.n, usize::MAX);
+            self.substitution_levels.insert(l.n, MAX_LEVEL);
         }
 
         // println!("s0: {:?}, s1: {:?}", s0, s1);
@@ -620,7 +624,7 @@ impl LevelizedCircuit {
 
     pub fn get_divider_circuit(info: DivInfo) -> LevelizedCircuit {
         // create a new levelized circuit object to store the circuit, substitution levels and its stats
-        let mut lc = LevelizedCircuit::new(1 << 32);
+        let mut lc = LevelizedCircuit::new(1 << 31);
 
         let bits = info.number_bits;
 

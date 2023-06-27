@@ -5,6 +5,7 @@ use std::ops::Range;
 use clap::ValueEnum;
 
 const ONE: usize = usize::MAX - 1;
+const DEFAULT_LEVEL: usize = (1 << 32) - 2;
 
 #[macro_export]
 macro_rules! stringify_enum {
@@ -802,7 +803,7 @@ impl LevelizedCircuit {
         for wire in &self.circuit.wires {
             let mut assign_statement = wire.to_verilog(&self.circuit.io_lines);
             assign_statement.pop();
-            let new_assign_statement = format!("{} /*{}*/\n", assign_statement, self.substitution_levels.get(&wire.out.n).unwrap_or(&(usize::MAX - 1)));
+            let new_assign_statement = format!("{} /*{}*/\n", assign_statement, self.substitution_levels.get(&wire.out.n).unwrap_or(&(DEFAULT_LEVEL)));
             s.push_str(&new_assign_statement);
         }
 
@@ -837,7 +838,7 @@ impl LevelizedCircuit {
                                 out.name,
                                 idx,
                                 l.to_verilog(&self.circuit.io_lines),
-                                self.substitution_levels.get(&l.n).unwrap_or(&(usize::MAX - 1))
+                                self.substitution_levels.get(&l.n).unwrap_or(&(DEFAULT_LEVEL))
                             ))
                         }
                     }
