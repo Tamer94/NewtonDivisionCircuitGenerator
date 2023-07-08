@@ -5,7 +5,7 @@ use crate::data::{Bit, Bit::One, Bit::Zero, Circuit, Shift};
 use crate::primitives::*;
 use clap::ValueEnum;
 
-const MAX_LEVEL: usize = (1_usize << 32) - 1;
+const MAX_LEVEL: usize = (1_usize << 31) - 1;
 
 pub struct IntDivResult {
     pub q: Vec<Bit>,
@@ -595,24 +595,19 @@ impl LevelizedCircuit {
         let r_plus = self.sub(&d_minus, &qd, Zero);
         let r_minus = self.sub(&d_plus, &qd, Zero);
 
+        let or_of_all_divisor_bits = self.circuit.or_of_all(divisor.clone());
+
         // println!("r {:?}, r_plus {:?}, r_minus {:?}", r0, r_plus, r_minus);
 
-        let s1 = *r0.last().unwrap_or(&Zero);
-        if let Bit::Var(l) = s1 {
-            self.substitution_levels.insert(l.n, MAX_LEVEL);
-        }
-
-        let s0 = *r_plus.last().unwrap_or(&Zero);
-        if let Bit::Var(l) = s0 {
-            self.substitution_levels.insert(l.n, MAX_LEVEL);
-        }
+        let s1 = self.circuit.and(*r0.last().unwrap_or(&Zero), or_of_all_divisor_bits);
+        let s0 = self.circuit.and(*r_plus.last().unwrap_or(&Zero), or_of_all_divisor_bits);
 
         // println!("s0: {:?}, s1: {:?}", s0, s1);
 
         // println!("r {:?}, r_plus {:?}, r_minus {:?}", r0, r_plus, r_minus);
 
-        let q_final = self.mux_n_4(&q_plus, &q0, &vec![Zero], &q_minus, (s0, s1));
-        let r_final = self.mux_n_4(&r_plus, &r0, &vec![Zero], &r_minus, (s0, s1));
+        let q_final = self.mux_n_4(&q_plus, &q0, &q_minus, &q_minus, (s0, s1));
+        let r_final = self.mux_n_4(&r_plus, &r0, &r_minus, &r_minus, (s0, s1));
         // println!("q_final {:?}, r_final {:?}, result is valid: {:?}", q_final, r_final, ok);
 
         IntDivResult {
@@ -624,7 +619,7 @@ impl LevelizedCircuit {
 
     pub fn get_divider_circuit(info: DivInfo) -> LevelizedCircuit {
         // create a new levelized circuit object to store the circuit, substitution levels and its stats
-        let mut lc = LevelizedCircuit::new(1 << 31);
+        let mut lc = LevelizedCircuit::new(1 << 30);
 
         let bits = info.number_bits;
 
@@ -652,10 +647,10 @@ impl LevelizedCircuit {
 
         let IntDivResult { q, r, ok } = lc.div_newton(dividend.clone(), divisor.clone(), info);
 
-        lc.circuit.add_as_io(&dividend, "R_0", false);
+        lc.circuit.add_as_io(&dividend, "N", false);
         lc.circuit.add_as_io(&divisor, "D", false);
         lc.circuit.add_as_io(&q, "Q", true);
-        lc.circuit.add_as_io(&r, "R_n1", true);
+        lc.circuit.add_as_io(&r, "R", true);
         lc.circuit.add_as_io(&vec![ok], "Valid", true);
         lc
     }

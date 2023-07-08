@@ -13,6 +13,8 @@ mod bdd_test;
 mod sat;
 #[cfg(test)]
 mod sat_test;
+mod poly_verify;
+mod verifycircuits;
 use data::{Circuit, LevelizedCircuit};
 use std::time::Instant;
 

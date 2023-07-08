@@ -87,6 +87,10 @@ pub fn get_file_and_module_name(args: Args) -> (String, String) {
         }
     }
 
+    if args.circuit_kind == CircuitKind::LEVELIZED {
+        file_name.push_str("Levelized");
+    }
+
     let module_name = file_name.clone();
 
     if let Some(name) = args.outputfile {

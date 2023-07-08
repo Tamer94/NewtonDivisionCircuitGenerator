@@ -12,6 +12,7 @@ num = "0.4"
 clap = { version = "4.0.32", features = ["derive"] }
 biodivine-lib-bdd = "0.4.2"
 varisat = "0.2.2"
+polyengine = { path = "../DivVerification/polyengine"}
 
-[profile.test]
-opt-level = 3
+#[profile.test]
+#opt-level = 3
